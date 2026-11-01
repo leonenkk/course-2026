@@ -1,16 +1,33 @@
 """REST-интерфейс дежурного (точка интеграции И10): список инцидентов, карточка, подтверждение."""
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
+import os
+import secrets
+
+from fastapi import Depends, FastAPI, Header, HTTPException
 
 from sentinel.audit import build_report
 from sentinel.service import FAULTS
 from sentinel.system import System, build_system
 
 
-def create_app(system: System | None = None) -> FastAPI:
+def create_app(system: System | None = None, token: str | None = None, dev: bool | None = None) -> FastAPI:
+    """Все маршруты, кроме /health, требуют токен дежурного (``Authorization: Bearer``).
+
+    Токен берётся из аргумента или переменной ``SENTINEL_API_TOKEN``. Маршруты ``/demo/*`` доступны
+    только в режиме разработки (``dev=True`` или ``SENTINEL_DEV=1``). Без токена приложение не стартует.
+    """
+    token = token or os.environ.get("SENTINEL_API_TOKEN")
+    dev = dev if dev is not None else os.environ.get("SENTINEL_DEV") == "1"
+    if not token:
+        raise RuntimeError("SENTINEL_API_TOKEN is not set: refusing to start without authentication")
     system = system or build_system()                  # без approver: опасные действия ждут человека
     app = FastAPI(title="Sentinel", version="0.1.0")
+
+    def oncall(authorization: str = Header(default="")) -> None:
+        scheme, _, given = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not secrets.compare_digest(given.encode(), token.encode()):
+            raise HTTPException(401, "invalid or missing token", headers={"WWW-Authenticate": "Bearer"})
 
     def card(run):
         inc = run.incident
@@ -26,11 +43,11 @@ def create_app(system: System | None = None) -> FastAPI:
     def health():
         return {"status": "ok", "time": system.sim.now()}
 
-    @app.get("/incidents")
+    @app.get("/incidents", dependencies=[Depends(oncall)])
     def incidents():
         return [card(r) for r in system.orchestrator.runs.values()]
 
-    @app.get("/incidents/{incident_id}")
+    @app.get("/incidents/{incident_id}", dependencies=[Depends(oncall)])
     def incident(incident_id: str):
         run = system.orchestrator.runs.get(incident_id)
         if run is None:
@@ -38,8 +55,8 @@ def create_app(system: System | None = None) -> FastAPI:
         return {**card(run), "audit": [e.__dict__ for e in system.store.events(incident_id)],
                 "report": build_report(system.store, incident_id)}
 
-    @app.post("/incidents/{incident_id}/{decision}")
-    def decide(incident_id: str, decision: str):
+    @app.post("/incidents/{incident_id}/{decision}", dependencies=[Depends(oncall)])
+    def decide(incident_id: str, decision: str, x_approver: str = Header(default="oncall")):
         if decision not in ("approve", "reject"):
             raise HTTPException(404, "unknown decision")
         run = system.orchestrator.runs.get(incident_id)
@@ -47,17 +64,21 @@ def create_app(system: System | None = None) -> FastAPI:
             raise HTTPException(404, "incident not found")
         if run.state.value != "AWAITING_APPROVAL":
             raise HTTPException(409, "incident is not awaiting approval")
-        return card(system.orchestrator.decide_approval(incident_id, decision == "approve"))
+        return card(system.orchestrator.decide_approval(incident_id, decision == "approve", x_approver[:64]))
 
-    @app.post("/demo/faults/{fault}")
+    @app.post("/demo/faults/{fault}", dependencies=[Depends(oncall)])
     def inject(fault: str):
+        if not dev:
+            raise HTTPException(404, "demo routes are disabled")
         if fault not in FAULTS:
             raise HTTPException(404, f"unknown fault, expected one of {FAULTS}")
         system.sim.inject(fault)
         return {"injected": fault}
 
-    @app.post("/demo/tick")
+    @app.post("/demo/tick", dependencies=[Depends(oncall)])
     def tick(n: int = 1):
+        if not dev:
+            raise HTTPException(404, "demo routes are disabled")
         opened = [card(r) for r in (system.tick() for _ in range(min(n, 200))) if r is not None]
         return {"time": system.sim.now(), "incidents": opened}
 
