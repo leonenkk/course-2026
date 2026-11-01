@@ -66,5 +66,5 @@ def test_approver_label_cannot_spoof_audit_actor():
         assert client.post(f"/incidents/{iid}/approve", headers={"X-Approver": bad}).status_code == 400
     assert client.get(f"/incidents/{iid}").json()["state"] == "AWAITING_APPROVAL"
     assert client.post(f"/incidents/{iid}/approve", headers={"X-Approver": "ivan.petrov"}).status_code == 200
-    ev = [e for e in client.get(f"/incidents/{iid}").json()["audit"] if e["type"] == "approval"][0]
+    ev = next(e for e in client.get(f"/incidents/{iid}").json()["audit"] if e["type"] == "approval")
     assert ev["actor"] == "human:oncall" and ev["payload"]["label"] == "ivan.petrov"
