@@ -90,12 +90,17 @@ class Orchestrator:
         self._to(run, State.PLANNED)
         return self._plan_and_act(run)
 
-    def decide_approval(self, incident_id: str, approve: bool, approver: str = "oncall") -> Run:
-        """Решение дежурного по ожидающему подтверждения инциденту."""
+    def decide_approval(self, incident_id: str, approve: bool, approver: str = "oncall",
+                        label: str | None = None) -> Run:
+        """Решение дежурного по ожидающему подтверждения инциденту.
+
+        ``approver`` --- аутентифицированный субъект (задаётся сервером), ``label`` --- необязательная
+        самостоятельно заявленная метка; в журнале они хранятся раздельно.
+        """
         run = self.runs[incident_id]
         if run.state is not State.AWAITING_APPROVAL:
             raise RuntimeError(f"{incident_id} is not awaiting approval")
-        self._audit(run, f"human:{approver}", "approval", {"approved": approve})
+        self._audit(run, f"human:{approver}", "approval", {"approved": approve, "label": label})
         if not approve:
             return self._escalate(run, "approval_rejected")
         run = self._act(run)

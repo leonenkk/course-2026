@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import secrets
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -9,6 +10,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from sentinel.audit import build_report
 from sentinel.service import FAULTS
 from sentinel.system import System, build_system
+
+LABEL = re.compile(r"^[a-z0-9._-]{1,64}$")
+RESERVED_LABELS = frozenset({"auto", "system", "oncall", "detector", "policy", "executor"})
 
 
 def create_app(system: System | None = None, token: str | None = None, dev: bool | None = None) -> FastAPI:
@@ -56,7 +60,10 @@ def create_app(system: System | None = None, token: str | None = None, dev: bool
                 "report": build_report(system.store, incident_id)}
 
     @app.post("/incidents/{incident_id}/{decision}", dependencies=[Depends(oncall)])
-    def decide(incident_id: str, decision: str, x_approver: str = Header(default="oncall")):
+    def decide(incident_id: str, decision: str, x_approver: str | None = Header(default=None)):
+        # Личность определяется токеном (один общий токен дежурного); X-Approver --- лишь пометка.
+        if x_approver is not None and (not LABEL.fullmatch(x_approver) or x_approver in RESERVED_LABELS):
+            raise HTTPException(400, "X-Approver must match ^[a-z0-9._-]{1,64}$ and not be a reserved name")
         if decision not in ("approve", "reject"):
             raise HTTPException(404, "unknown decision")
         run = system.orchestrator.runs.get(incident_id)
@@ -64,7 +71,7 @@ def create_app(system: System | None = None, token: str | None = None, dev: bool
             raise HTTPException(404, "incident not found")
         if run.state.value != "AWAITING_APPROVAL":
             raise HTTPException(409, "incident is not awaiting approval")
-        return card(system.orchestrator.decide_approval(incident_id, decision == "approve", x_approver[:64]))
+        return card(system.orchestrator.decide_approval(incident_id, decision == "approve", "oncall", x_approver))
 
     @app.post("/demo/faults/{fault}", dependencies=[Depends(oncall)])
     def inject(fault: str):

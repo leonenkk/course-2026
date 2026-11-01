@@ -55,3 +55,16 @@ def test_refuses_to_start_without_token(monkeypatch):
     monkeypatch.delenv("SENTINEL_API_TOKEN", raising=False)
     with pytest.raises(RuntimeError):
         create_app()
+
+
+def test_approver_label_cannot_spoof_audit_actor():
+    client = make()
+    client.post("/demo/tick", params={"n": 12})
+    client.post("/demo/faults/poison_message")
+    iid = client.post("/demo/tick", params={"n": 40}).json()["incidents"][0]["id"]
+    for bad in ("auto", "oncall", "Admin", "a b", "x" * 65):
+        assert client.post(f"/incidents/{iid}/approve", headers={"X-Approver": bad}).status_code == 400
+    assert client.get(f"/incidents/{iid}").json()["state"] == "AWAITING_APPROVAL"
+    assert client.post(f"/incidents/{iid}/approve", headers={"X-Approver": "ivan.petrov"}).status_code == 200
+    ev = [e for e in client.get(f"/incidents/{iid}").json()["audit"] if e["type"] == "approval"][0]
+    assert ev["actor"] == "human:oncall" and ev["payload"]["label"] == "ivan.petrov"
