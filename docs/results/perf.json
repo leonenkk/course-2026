@@ -1,0 +1,73 @@
+{
+  "environment": {
+    "python": "3.14.4",
+    "platform": "Linux-7.0.0-42-generic-x86_64-with-glibc2.43",
+    "processor": "x86_64",
+    "numpy": "2.5.4",
+    "scikit-learn": "1.9.1",
+    "timestamp": "2026-11-05T00:18:20+00:00"
+  },
+  "kb_scaling": [
+    {
+      "runbooks": 24,
+      "index_build_ms": 12.434798991307616,
+      "rank_all_ms_p50": 0.11292799899820238,
+      "rank_all_ms_p95": 0.15090240049175918,
+      "prefiltered_ms_p50": 0.06296900392044336,
+      "vectors_kb": 96.0
+    },
+    {
+      "runbooks": 100,
+      "index_build_ms": 4.073745003552176,
+      "rank_all_ms_p50": 0.3222090017516166,
+      "rank_all_ms_p95": 0.3745913061720785,
+      "prefiltered_ms_p50": 0.0667864951537922,
+      "vectors_kb": 400.0
+    },
+    {
+      "runbooks": 500,
+      "index_build_ms": 22.858348005684093,
+      "rank_all_ms_p50": 2.3938064914545976,
+      "rank_all_ms_p95": 5.575889541796641,
+      "prefiltered_ms_p50": 0.12963950575795025,
+      "vectors_kb": 2000.0
+    },
+    {
+      "runbooks": 1000,
+      "index_build_ms": 76.82067900896072,
+      "rank_all_ms_p50": 5.045976999099366,
+      "rank_all_ms_p95": 8.68943059904268,
+      "prefiltered_ms_p50": 0.16215149662457407,
+      "vectors_kb": 4000.0
+    },
+    {
+      "runbooks": 5000,
+      "index_build_ms": 291.0807830048725,
+      "rank_all_ms_p50": 30.60739550710423,
+      "rank_all_ms_p95": 47.474382202199195,
+      "prefiltered_ms_p50": 0.44049199641449377,
+      "vectors_kb": 20000.0
+    },
+    {
+      "runbooks": 10000,
+      "index_build_ms": 514.4759719987633,
+      "rank_all_ms_p50": 67.21912750072079,
+      "rank_all_ms_p95": 96.90718564888812,
+      "prefiltered_ms_p50": 0.7714974999544211,
+      "vectors_kb": 40000.0
+    }
+  ],
+  "detector": {
+    "if_fit_ms": 125.3512800030876,
+    "if_trees": 100,
+    "if_psi": 256,
+    "detector_step_ms_p50": 6.839483998192009,
+    "detector_step_ms_p95": 7.377287242707098,
+    "if_score_ms_p50": 6.752585002686828
+  },
+  "query_embedding": {
+    "embedder": "ollama:bge-m3",
+    "query_ms_p50": 59.433841495774686,
+    "query_ms_p95": 63.59544134247699
+  }
+}

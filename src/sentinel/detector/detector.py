@@ -62,6 +62,8 @@ class Detector:
         # серии подряд идущих измерений ведутся по каждому правилу и по аномалии
         for rule in RULES:
             self._streak[rule.id] = self._streak.get(rule.id, 0) + 1 if rule.matches(signals) else 0
+        if matched:
+            self._streak["D6"] = 0       # аномалия считается только при молчании правил
         incident = None
         if matched and self._streak[matched.id] >= (matched.debounce or self.cfg.debounce_k):
             incident = self._make(matched.id, "rule", signals, samples[-1].t)

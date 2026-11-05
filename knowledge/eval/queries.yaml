@@ -1,0 +1,84 @@
+# Набор запросов для оценки качества поиска инструкций (раздел 3 записки).
+# kind: logs --- строки логов и фразы сигналов, как в рабочем запросе оркестратора;
+#       paraphrase --- описание симптомов своими словами, без ключевых слов инструкции;
+#       english --- описание на английском (инструкции написаны по-русски).
+- {id: Q01, kind: logs, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-001,
+   text: "ERROR: Worker celery@w1 exited prematurely: signal 9 (SIGKILL) воркеры не отвечают"}
+- {id: Q02, kind: paraphrase, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-001,
+   text: "все обработчики фоновых задач внезапно упали, задания копятся и никто их не берёт"}
+- {id: Q03, kind: english, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-001,
+   text: "all background workers crashed and the task backlog keeps growing"}
+- {id: Q04, kind: logs, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-006,
+   text: "kernel: Out of memory: Killed process # (celery) MemoryError: Unable to allocate # MiB"}
+- {id: Q05, kind: paraphrase, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-006,
+   text: "процессы обработчиков съели всю оперативку контейнера и были прибиты системой"}
+- {id: Q06, kind: english, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-006,
+   text: "workers were killed because the container ran out of RAM"}
+- {id: Q07, kind: logs, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-007,
+   text: "maintenance window started, drain node worker-2 воркеры остановлены"}
+- {id: Q08, kind: paraphrase, service: demo-api, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-007,
+   text: "обработчики отключили специально на время запланированных работ на сервере"}
+- {id: Q09, kind: logs, service: demo-api, signals: [QUEUE_GROWING, LATENCY_HIGH], expected: RB-002,
+   text: "WARNING: task-# took #.#s (slow downstream response) задачи выполняются долго"}
+- {id: Q10, kind: paraphrase, service: demo-api, signals: [QUEUE_GROWING, LATENCY_HIGH], expected: RB-002,
+   text: "каждое задание обрабатывается в несколько раз дольше обычного, сбоев при этом нет"}
+- {id: Q11, kind: logs, service: demo-api, signals: [QUEUE_GROWING, LATENCY_HIGH], expected: RB-008,
+   text: "WARNING: inbound rate #.# tasks/s exceeds baseline #.# (campaign promo-#)"}
+- {id: Q12, kind: paraphrase, service: demo-api, signals: [QUEUE_GROWING, LATENCY_HIGH], expected: RB-008,
+   text: "после рекламной рассылки заданий стало приходить втрое больше, хотя каждое выполняется как обычно"}
+- {id: Q13, kind: english, service: demo-api, signals: [QUEUE_GROWING, LATENCY_HIGH], expected: RB-008,
+   text: "traffic surge after the marketing campaign, incoming load tripled"}
+- {id: Q14, kind: logs, service: demo-api, signals: [ERROR_RATE_HIGH, LOG_DB_CONN], expected: RB-003,
+   text: "sqlalchemy.exc.TimeoutError: QueuePool limit of size # overflow # reached"}
+- {id: Q15, kind: paraphrase, service: demo-api, signals: [ERROR_RATE_HIGH, LOG_DB_CONN], expected: RB-003,
+   text: "приложению не хватает подключений к постгресу, запросы отваливаются по ожиданию"}
+- {id: Q16, kind: logs, service: demo-api, signals: [ERROR_RATE_HIGH, LOG_DB_CONN], expected: RB-011,
+   text: "redis.exceptions.ConnectionError: Too many connections"}
+- {id: Q17, kind: english, service: demo-api, signals: [ERROR_RATE_HIGH, LOG_DB_CONN], expected: RB-011,
+   text: "cache server refuses new clients, connection limit exhausted"}
+- {id: Q18, kind: logs, service: demo-api, signals: [CONSUMER_STALLED, QUEUE_GROWING], expected: RB-004,
+   text: "WARNING: message id=# redelivered # times, consumer blocked"}
+- {id: Q19, kind: paraphrase, service: demo-api, signals: [CONSUMER_STALLED, QUEUE_GROWING], expected: RB-004,
+   text: "одно и то же битое сообщение снова и снова возвращается и стопорит обработку"}
+- {id: Q20, kind: logs, service: demo-api, signals: [CONSUMER_STALLED, QUEUE_GROWING], expected: RB-010,
+   text: "ack timeout exceeded, visibility timeout, message requeued before completion"}
+- {id: Q21, kind: english, service: demo-api, signals: [CONSUMER_STALLED, QUEUE_GROWING], expected: RB-010,
+   text: "broker hands out different messages again because acknowledgement comes too late"}
+- {id: Q22, kind: logs, service: demo-api, signals: [LATENCY_HIGH, ERROR_RATE_HIGH], expected: RB-009,
+   text: "upstream timeout calling payments, 503 Service Unavailable"}
+- {id: Q23, kind: paraphrase, service: demo-api, signals: [LATENCY_HIGH, ERROR_RATE_HIGH], expected: RB-009,
+   text: "сторонний сервис оплаты перестал отвечать, задания падают по таймауту"}
+- {id: Q24, kind: logs, service: demo-api, signals: [LOG_SENSITIVE_DATA], expected: RB-005,
+   text: "export job: dumped # rows of users (personal data) to external host"}
+- {id: Q25, kind: english, service: demo-api, signals: [LOG_SENSITIVE_DATA], expected: RB-005,
+   text: "customer records are being copied to an unknown external server"}
+- {id: Q26, kind: logs, service: billing-worker, signals: [WORKERS_DOWN, QUEUE_GROWING], expected: RB-012,
+   text: "billing worker process exited, payment events queue growing"}
+- {id: Q27, kind: paraphrase, service: billing-worker, signals: [CONSUMER_STALLED, QUEUE_GROWING], expected: RB-013,
+   text: "события об оплате приходят повторно, обработка списаний встала"}
+- {id: Q28, kind: logs, service: billing-worker, signals: [ERROR_RATE_HIGH, LOG_DB_CONN], expected: RB-014,
+   text: "QueuePool limit reached while writing payment"}
+- {id: Q29, kind: logs, service: auth-api, signals: [ERROR_RATE_HIGH], expected: RB-015,
+   text: "SSL: certificate has expired, handshake failed"}
+- {id: Q30, kind: english, service: auth-api, signals: [ERROR_RATE_HIGH], expected: RB-015,
+   text: "clients cannot connect, the TLS cert is out of date"}
+- {id: Q31, kind: logs, service: auth-api, signals: [LATENCY_HIGH], expected: RB-016,
+   text: "lock wait timeout exceeded; try restarting transaction"}
+- {id: Q32, kind: paraphrase, service: auth-api, signals: [LOG_SENSITIVE_DATA], expected: RB-017,
+   text: "в журнал пишутся пароли и токены пользователей открытым текстом"}
+- {id: Q33, kind: logs, service: auth-api, signals: [ERROR_RATE_HIGH], expected: RB-018,
+   text: "401 Unauthorized login failed for user admin from # addresses"}
+- {id: Q34, kind: logs, service: report-cron, signals: [ERROR_RATE_HIGH], expected: RB-019,
+   text: "OSError: [Errno 28] No space left on device"}
+- {id: Q35, kind: paraphrase, service: report-cron, signals: [QUEUE_GROWING, LATENCY_HIGH], expected: RB-020,
+   text: "годовые отчёты строятся по часу и задания на отчёты скапливаются"}
+- {id: Q36, kind: paraphrase, service: report-cron, signals: [WORKERS_DOWN], expected: RB-024,
+   text: "задания по расписанию перестали запускаться после правки настроек"}
+- {id: Q37, kind: logs, service: gateway, signals: [LATENCY_HIGH, ERROR_RATE_HIGH], expected: RB-021,
+   text: "502 Bad Gateway 504 Gateway Timeout on all routes"}
+- {id: Q38, kind: logs, service: gateway, signals: [ERROR_RATE_HIGH], expected: RB-022,
+   text: "getaddrinfo failed: Name or service not known"}
+- {id: Q39, kind: english, service: gateway, signals: [LOG_SENSITIVE_DATA], expected: RB-023,
+   text: "access logs with user identifiers are shipped to an external bucket"}
+- {id: Q40, kind: english, service: report-cron, signals: [ERROR_RATE_HIGH], expected: RB-019,
+   text: "report jobs crash because the disk is full"}

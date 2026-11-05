@@ -68,3 +68,31 @@ def test_approver_label_cannot_spoof_audit_actor():
     assert client.post(f"/incidents/{iid}/approve", headers={"X-Approver": "ivan.petrov"}).status_code == 200
     ev = next(e for e in client.get(f"/incidents/{iid}").json()["audit"] if e["type"] == "approval")
     assert ev["actor"] == "human:oncall" and ev["payload"]["label"] == "ivan.petrov"
+
+
+def test_panel_is_static_and_protected_by_csp():
+    client = TestClient(create_app(token="secret", dev=False))          # без токена
+    page = client.get("/")
+    assert page.status_code == 200 and "Sentinel" in page.text
+    assert "default-src 'none'" in page.headers["content-security-policy"]
+    assert "secret" not in page.text                                      # токен не встраивается в страницу
+    assert "innerHTML" not in page.text                                   # недоверенный текст --- только textContent
+    assert client.get("/config").status_code == 401
+
+
+def test_config_hides_faults_outside_dev_mode():
+    cfg = make(dev=False).get("/config").json()
+    assert cfg["dev"] is False and cfg["faults"] == [] and cfg["runbooks"] >= 20
+
+
+def test_card_explains_diagnosis():
+    client = make()
+    client.post("/demo/tick", params={"n": 12})
+    client.post("/demo/faults/workers_crash")
+    inc = client.post("/demo/tick", params={"n": 40}).json()["incidents"][0]
+    d = client.get(f"/incidents/{inc['id']}").json()
+    assert d["state"] == "RESOLVED" and d["chain_ok"] is True
+    diag = d["diagnosis"]
+    assert diag["action"] == "restart_workers" and {"c_llm", "s_ret", "m_sig", "explanation"} <= set(diag)
+    assert abs(diag["confidence"] - (0.3 * diag["c_llm"] + 0.2 * diag["s_ret"] + 0.5 * diag["m_sig"])) < 0.01
+    assert "llm" in d["timings_ms"] and d["retrieved"]

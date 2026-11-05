@@ -13,6 +13,12 @@ class ActionSpec:
     timeout_s: float = 30.0
     int_limits: dict = field(default_factory=dict)       # параметр -> (min, max)
     allowed_values: dict = field(default_factory=dict)   # параметр -> допустимые значения
+    description: str = ""
+    params_hint: dict = field(default_factory=dict)      # пример параметров для запроса к модели
+
+    def describe(self) -> dict:
+        """Описание инструмента для языковой модели (без класса риска: решение о риске --- не её)."""
+        return {"name": self.name, "description": self.description, "params": self.params_hint}
 
 
 class ActionRegistry:
@@ -24,6 +30,9 @@ class ActionRegistry:
 
     def get(self, name: str) -> ActionSpec:
         return self._specs[name]
+
+    def names(self) -> list[str]:
+        return list(self._specs)
 
     def validate(self, name: str, params: dict) -> str | None:
         """Возвращает текст нарушения или None, если действие и параметры допустимы."""
@@ -42,9 +51,13 @@ class ActionRegistry:
 
 def default_registry() -> ActionRegistry:
     return ActionRegistry([
-        ActionSpec("restart_workers", Risk.LOW),
-        ActionSpec("scale_workers", Risk.MEDIUM, int_limits={"delta": (1, 4)}),
-        ActionSpec("purge_queue", Risk.HIGH, allowed_values={"queue": {"default"}}),
-        ActionSpec("create_ticket", Risk.LOW),
-        ActionSpec("notify_oncall", Risk.LOW),
+        ActionSpec("restart_workers", Risk.LOW, description="перезапустить процессы воркеров"),
+        ActionSpec("scale_workers", Risk.MEDIUM, int_limits={"delta": (1, 4)},
+                   description="добавить воркеры (delta --- целое от 1 до 4)", params_hint={"delta": 2}),
+        ActionSpec("purge_queue", Risk.HIGH, allowed_values={"queue": {"default"}},
+                   description="удалить все сообщения из очереди", params_hint={"queue": "default"}),
+        ActionSpec("create_ticket", Risk.LOW, description="создать тикет для разбора людьми",
+                   params_hint={"title": "...", "body": "..."}),
+        ActionSpec("notify_oncall", Risk.LOW, description="уведомить дежурного инженера",
+                   params_hint={"message": "..."}),
     ])

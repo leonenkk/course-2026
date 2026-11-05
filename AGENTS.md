@@ -8,11 +8,14 @@
 
 ```bash
 uv venv && uv pip install -e ".[api,dev]"   # окружение (Python >= 3.11)
-.venv/bin/python -m pytest                  # все тесты (~5 с), должны быть зелёными
+.venv/bin/python -m pytest                  # все тесты (без нейросетей), должны быть зелёными
 .venv/bin/ruff check src tests              # линтер
-.venv/bin/python -m sentinel all            # сценарии С1–С6 на имитаторе
+.venv/bin/python -m sentinel all            # золотой набор (16 сценариев) на тестовых двойниках
 .venv/bin/python -m sentinel run c6         # один сценарий с протоколом аудита
-.venv/bin/python -m sentinel run c1 --llm ollama --model <модель>   # с реальной моделью
+.venv/bin/python -m sentinel kb             # проверка базы знаний
+.venv/bin/python -m sentinel run c1m --llm ollama --embedder bge-m3   # с реальными моделями (Ollama)
+.venv/bin/python -m sentinel eval e2e|retrieval|perf                  # эксперименты раздела 3 -> docs/results
+SENTINEL_API_TOKEN=<токен> SENTINEL_DEV=1 .venv/bin/python -m sentinel serve   # REST + веб-панель
 ```
 
 ## Архитектура (кратко)
@@ -41,8 +44,12 @@ uv venv && uv pip install -e ".[api,dev]"   # окружение (Python >= 3.11
 
 ## Подводные камни
 
-- `StubLLM` и `HashingEmbedder` — тестовые двойники, **не нейросети**; не выдавать их результаты за
-  результаты нейросетевого компонента.
+- `StubLLM`, `FailingLLM` и `HashingEmbedder` — тестовые двойники, **не нейросети**; не выдавать их
+  результаты за результаты нейросетевого компонента. Результаты с реальными моделями — `docs/results/`.
+- Режим `llm_only` исполняет действия без политики: разрешён только для порта с `sandbox = True`.
+- Новая инструкция должна пройти `sentinel kb` (сигналы и действия только из словарей, критерии —
+  закрытая грамматика `knowledge/criteria.py`), иначе система не стартует.
+- Веб-панель выводит данные только через `textContent`: причина и объяснение модели — недоверенный текст.
 - Модели < 3B параметров плохо справляются с форматом и выбором инструкции (см. README).
 - Журнал и исполнения — SQLite (`check_same_thread=False`); в целевой архитектуре — PostgreSQL.
 - API требует токен (`SENTINEL_API_TOKEN`), `/demo/*` только при `SENTINEL_DEV=1`. Не добавлять

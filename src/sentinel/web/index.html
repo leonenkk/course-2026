@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel — панель дежурного</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --ink: #1d2330; --muted: #5d6677; --line: #dfe3ea;
+    --accent: #2457c5; --ok: #1f7a4a; --warn: #a15c00; --bad: #b42318; --wait: #6941c6;
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); }
+  header { display: flex; gap: 16px; align-items: center; padding: 10px 20px; background: var(--ink); color: #fff; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; letter-spacing: .02em; }
+  header .meta { color: #b8c0cf; font-size: 12px; }
+  header form { margin-left: auto; display: flex; gap: 6px; }
+  input, select, button { font: inherit; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--line); }
+  button { cursor: pointer; background: var(--panel); }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px 20px; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  h3 { font-size: 14px; margin: 16px 0 6px; }
+  .list { list-style: none; margin: 0; padding: 0; }
+  .list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
+  .list li:hover { background: var(--bg); }
+  .list li.active { border-color: var(--accent); background: #eef3fd; }
+  .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+  .sig { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; color: #fff; background: var(--muted); white-space: nowrap; }
+  .RESOLVED { background: var(--ok); } .ESCALATED { background: var(--bad); }
+  .AWAITING_APPROVAL { background: var(--wait); } .DIAGNOSING, .PLANNED, .ACTING, .VERIFYING { background: var(--warn); }
+  dl { display: grid; grid-template-columns: 170px 1fr; gap: 4px 12px; margin: 0; }
+  dt { color: var(--muted); } dd { margin: 0; }
+  .callout { border-left: 4px solid var(--wait); background: #f4f0fd; padding: 10px 12px; border-radius: 6px; margin: 12px 0; }
+  .callout .actions { display: flex; gap: 8px; margin-top: 8px; }
+  .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; width: 160px; display: inline-block; vertical-align: middle; margin-right: 8px; }
+  .bar span { display: block; height: 100%; background: var(--accent); }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.payload { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
+  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
+  .error { color: var(--bad); margin: 8px 0 0; }
+  .demo { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
+  .demo .label { color: var(--muted); font-size: 12px; width: 100%; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sentinel</h1>
+  <span class="meta" id="meta">не подключено</span>
+  <form id="login" autocomplete="off">
+    <input id="token" type="password" placeholder="токен дежурного" aria-label="Токен дежурного">
+    <button class="primary" type="submit">Подключиться</button>
+  </form>
+</header>
+<main>
+  <section aria-label="Инциденты">
+    <h2>Инциденты</h2>
+    <ul class="list" id="incidents"><li class="empty">Нет данных</li></ul>
+    <div class="demo" id="demo" hidden>
+      <span class="label">Демонстрация (только в режиме разработки)</span>
+      <select id="fault" aria-label="Сбой"></select>
+      <button id="inject" type="button">Внести сбой</button>
+      <button id="tick" type="button" title="20 измерений по 5 с">Шаг ×20</button>
+    </div>
+    <p class="error" id="error" role="alert"></p>
+  </section>
+  <section aria-label="Карточка инцидента" id="card"><div class="empty">Выберите инцидент</div></section>
+</main>
+<script>
+"use strict";
+// Все данные (включая текст от модели и логов) выводятся только через textContent: это недоверенный ввод.
+const $ = (id) => document.getElementById(id);
+let token = sessionStorage.getItem("sentinel-token") || "";
+let selected = null;
+
+function el(tag, attrs = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v; else if (k === "text") node.textContent = v; else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  return node;
+}
+
+async function api(path, method = "GET") {
+  const res = await fetch(path, { method, headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) { throw new Error("Неверный токен"); }
+  if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || res.statusText); }
+  return res.json();
+}
+
+// Числа в интерфейсе — с десятичной запятой и фиксированной точностью (как в записке).
+const num = (v, d = 2) => (v == null ? "—" : Number(v).toFixed(d).replace(".", ","));
+
+function badge(state) { return el("span", { class: `badge ${state}`, text: state }); }
+
+function renderList(items) {
+  const ul = $("incidents");
+  ul.replaceChildren();
+  if (!items.length) { ul.append(el("li", { class: "empty", text: "Инцидентов нет" })); return; }
+  for (const it of items) {
+    const li = el("li", { tabindex: "0" },
+      el("div", { class: "row" }, el("strong", { text: it.id }), badge(it.state)),
+      el("div", { class: "sig", text: `${it.rule} · ${it.signals.join(", ") || "без сигналов"}` }));
+    if (it.id === selected) li.classList.add("active");
+    li.addEventListener("click", () => { selected = it.id; refresh(); });
+    li.addEventListener("keydown", (e) => { if (e.key === "Enter") { selected = it.id; refresh(); } });
+    ul.append(li);
+  }
+}
+
+function confidence(h) {
+  const pct = Math.round(h.confidence * 100);
+  return el("span", {}, el("span", { class: "bar" }, el("span", { style: `width:${pct}%` })),
+    `${num(h.confidence)} = 0,3·${num(h.c_llm)} (модель) + 0,2·${num(h.s_ret)} (поиск) + 0,5·${num(h.m_sig)} (сигналы)`);
+}
+
+function hypothesisBlock(h) {
+  return el("dl", {},
+    el("dt", { text: "Инструкция" }), el("dd", { text: h.runbook }),
+    el("dt", { text: "Причина" }), el("dd", { text: h.cause }),
+    el("dt", { text: "Объяснение" }), el("dd", { text: h.explanation }),
+    el("dt", { text: "Действие" }), el("dd", { text: `${h.action} ${JSON.stringify(h.params)}` }),
+    el("dt", { text: "Уверенность C" }), el("dd", {}, confidence(h)));
+}
+
+function renderCard(c) {
+  const box = $("card");
+  const parts = [
+    el("div", { class: "row" }, el("h2", { text: `Инцидент ${c.id}` }), badge(c.state)),
+    el("dl", {},
+      el("dt", { text: "Правило / источник" }), el("dd", { text: `${c.rule} / ${c.source}` }),
+      el("dt", { text: "Сигналы" }), el("dd", { class: "sig", text: c.signals.join(", ") || "—" }),
+      el("dt", { text: "Причина эскалации" }), el("dd", { text: c.reason || "—" }),
+      el("dt", { text: "Целостность журнала" }), el("dd", { text: c.chain_ok ? "подтверждена" : "НАРУШЕНА" }))];
+  if (c.pending) {
+    const approve = el("button", { class: "primary", type: "button", text: "Подтвердить" });
+    const reject = el("button", { class: "danger", type: "button", text: "Отклонить" });
+    approve.addEventListener("click", () => decide(c.id, "approve", [approve, reject]));
+    reject.addEventListener("click", () => decide(c.id, "reject", [approve, reject]));
+    parts.push(el("div", { class: "callout" },
+      el("strong", { text: "Требуется решение дежурного" }), hypothesisBlock(c.pending),
+      el("div", { class: "actions" }, approve, reject)));
+  } else if (c.diagnosis) {
+    parts.push(el("h3", { text: "Диагноз" }), hypothesisBlock(c.diagnosis));
+  }
+  if (c.retrieved.length) {
+    parts.push(el("h3", { text: "Найденные инструкции" }), el("table", {},
+      el("tr", {}, el("th", { text: "id" }), el("th", { text: "Заголовок" }), el("th", { text: "s_ret" })),
+      ...c.retrieved.map((r) => el("tr", {}, el("td", { text: r.runbook }), el("td", { text: r.title }), el("td", { text: num(r.s_ret, 3) })))));
+  }
+  const t = Object.entries(c.timings_ms).map(([k, v]) => `${k} ${num(v, 1)} мс`).join(" · ");
+  if (t) parts.push(el("h3", { text: "Время этапов" }), el("div", { class: "sig", text: t }));
+  parts.push(el("h3", { text: "Журнал аудита" }), el("table", {},
+    el("tr", {}, ...["№", "t, с", "Субъект", "Событие", "Данные"].map((h) => el("th", { text: h }))),
+    ...c.audit.map((e) => el("tr", {}, el("td", { text: e.seq }), el("td", { text: e.ts.toFixed(0) }),
+      el("td", { text: e.actor }), el("td", { text: e.type }), el("td", { class: "payload", text: JSON.stringify(e.payload) })))));
+  box.replaceChildren(...parts);
+}
+
+async function decide(id, decision, buttons) {
+  buttons.forEach((b) => { b.disabled = true; });
+  try { await api(`/incidents/${encodeURIComponent(id)}/${decision}`, "POST"); } catch (e) { showError(e); }
+  refresh();
+}
+
+function showError(e) { $("error").textContent = e ? e.message : ""; }
+
+async function refresh() {
+  if (!token) return;
+  try {
+    const items = await api("/incidents");
+    renderList(items);
+    if (selected) renderCard(await api(`/incidents/${encodeURIComponent(selected)}`));
+    showError(null);
+  } catch (e) { showError(e); }
+}
+
+async function connect() {
+  try {
+    const cfg = await api("/config");
+    $("meta").textContent = `${cfg.service} · режим ${cfg.mode} · модель ${cfg.llm} · эмбеддинги ${cfg.embedder} · инструкций ${cfg.runbooks}`;
+    $("demo").hidden = !cfg.dev;
+    $("fault").replaceChildren(...cfg.faults.map((f) => el("option", { value: f, text: f })));
+    showError(null);
+    refresh();
+  } catch (e) { showError(e); }
+}
+
+$("login").addEventListener("submit", (e) => {
+  e.preventDefault();
+  token = $("token").value.trim();
+  sessionStorage.setItem("sentinel-token", token);
+  $("token").value = "";
+  connect();
+});
+$("inject").addEventListener("click", async () => {
+  try { await api(`/demo/faults/${encodeURIComponent($("fault").value)}`, "POST"); } catch (e) { showError(e); }
+});
+$("tick").addEventListener("click", async (ev) => {
+  ev.target.disabled = true;
+  try {
+    const r = await api("/demo/tick?n=20", "POST");
+    if (r.incidents.length) selected = r.incidents[r.incidents.length - 1].id;
+  } catch (e) { showError(e); }
+  ev.target.disabled = false;
+  refresh();
+});
+if (token) connect();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

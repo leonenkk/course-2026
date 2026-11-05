@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import weakref
 from dataclasses import dataclass
 
 SCHEMA = """
@@ -35,6 +36,10 @@ class AuditStore:
     def __init__(self, path: str = ":memory:") -> None:
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.executescript(SCHEMA)
+        self._finalizer = weakref.finalize(self, self.db.close)   # соединение закрывается и без close()
+
+    def close(self) -> None:
+        self._finalizer()
 
     @staticmethod
     def _digest(prev: str, incident_id: str, seq: int, ts: float, actor: str, typ: str, payload: str) -> str:

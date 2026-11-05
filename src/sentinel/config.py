@@ -36,5 +36,6 @@ class Settings:
     verify_wait_s: float = 30.0
     verify_consecutive: int = 2
     max_hypotheses: int = 3
+    max_active_s: float = 120.0      # бюджет активной обработки (без пауз проверки и ожидания человека)
     llm_retries: int = 2
     log_line_limit: int = 200
