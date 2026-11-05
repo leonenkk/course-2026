@@ -1,219 +1,743 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>Sentinel — панель дежурного</title>
 <style>
+  /*
+   * Панель дежурного для длинной смены: тёмная графитовая консоль, состояния как сигнальные лампы.
+   * Цвет несёт смысл и только его: фиолетовый — то, что предложила нейросеть (поиск, модель),
+   * нейтральный каркас — символьный слой (детектор, верификатор, политика), лампы — состояния.
+   * Палитра шкалы уверенности проверена валидатором dataviz (тёмная и светлая темы).
+   */
   :root {
-    --bg: #f5f6f8; --panel: #fff; --ink: #1d2330; --muted: #5d6677; --line: #dfe3ea;
-    --accent: #2457c5; --ok: #1f7a4a; --warn: #a15c00; --bad: #b42318; --wait: #6941c6;
-    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--ink);
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+    --ease: cubic-bezier(.16, 1, .3, 1);
   }
+  :root[data-theme="dark"] {
+    --bg: #0e1216; --surface: #151a20; --surface-2: #1b222a; --surface-3: #232c36; --line: #29323c;
+    --ink: #e7ebf0; --ink-2: #aab4c0; --ink-3: #808b99;
+    --accent: #4fc0d3; --accent-ink: #062a31; --focus: #7fd8e6;
+    --neural: #957eef; --neural-2: #5e4cbc; --symbolic: #1a9cb0;
+    --neural-wash: rgba(149, 126, 239, .10); --neural-line: rgba(149, 126, 239, .38);
+    --ok: #5cc08a; --wait: #f0b54a; --bad: #f0736b; --busy: #8aa4c8;
+    --wait-wash: rgba(240, 181, 74, .09); --wait-line: rgba(240, 181, 74, .45);
+    --bad-wash: rgba(240, 115, 107, .09); --bad-line: rgba(240, 115, 107, .42);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .35), 0 8px 24px rgba(0, 0, 0, .25);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef1f4; --surface: #ffffff; --surface-2: #f4f6f8; --surface-3: #e8ecf0; --line: #dbe1e7;
+    --ink: #141a21; --ink-2: #48525f; --ink-3: #636e7c;
+    --accent: #0e7c90; --accent-ink: #ffffff; --focus: #0e7c90;
+    --neural: #6d4fd8; --neural-2: #a690f2; --symbolic: #0f8aa0;
+    --neural-wash: rgba(109, 79, 216, .06); --neural-line: rgba(109, 79, 216, .30);
+    --ok: #1d7a48; --wait: #9a5a00; --bad: #b42318; --busy: #3f5f8a;
+    --wait-wash: rgba(196, 128, 0, .08); --wait-line: rgba(154, 90, 0, .40);
+    --bad-wash: rgba(180, 35, 24, .06); --bad-line: rgba(180, 35, 24, .35);
+    --shadow: 0 1px 2px rgba(20, 26, 33, .06), 0 6px 20px rgba(20, 26, 33, .06);
+  }
+
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); }
-  header { display: flex; gap: 16px; align-items: center; padding: 10px 20px; background: var(--ink); color: #fff; flex-wrap: wrap; }
-  header h1 { font-size: 16px; margin: 0 12px 0 0; letter-spacing: .02em; }
-  header .meta { color: #b8c0cf; font-size: 12px; }
-  header form { margin-left: auto; display: flex; gap: 6px; }
-  input, select, button { font: inherit; padding: 5px 9px; border-radius: 6px; border: 1px solid var(--line); }
-  button { cursor: pointer; background: var(--panel); }
-  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-  button.danger { background: var(--bad); color: #fff; border-color: var(--bad); }
-  button:disabled { opacity: .5; cursor: default; }
-  main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px 20px; }
-  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
-  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
-  h3 { font-size: 14px; margin: 16px 0 6px; }
-  .list { list-style: none; margin: 0; padding: 0; }
-  .list li { padding: 8px 10px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
-  .list li:hover { background: var(--bg); }
-  .list li.active { border-color: var(--accent); background: #eef3fd; }
-  .row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-  .sig { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); }
-  .badge { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 99px; color: #fff; background: var(--muted); white-space: nowrap; }
-  .RESOLVED { background: var(--ok); } .ESCALATED { background: var(--bad); }
-  .AWAITING_APPROVAL { background: var(--wait); } .DIAGNOSING, .PLANNED, .ACTING, .VERIFYING { background: var(--warn); }
-  dl { display: grid; grid-template-columns: 170px 1fr; gap: 4px 12px; margin: 0; }
-  dt { color: var(--muted); } dd { margin: 0; }
-  .callout { border-left: 4px solid var(--wait); background: #f4f0fd; padding: 10px 12px; border-radius: 6px; margin: 12px 0; }
-  .callout .actions { display: flex; gap: 8px; margin-top: 8px; }
-  .bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; width: 160px; display: inline-block; vertical-align: middle; margin-right: 8px; }
-  .bar span { display: block; height: 100%; background: var(--accent); }
-  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
-  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; }
-  td.payload { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
-  .empty { color: var(--muted); padding: 24px 0; text-align: center; }
-  .error { color: var(--bad); margin: 8px 0 0; }
-  .demo { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); }
-  .demo .label { color: var(--muted); font-size: 12px; width: 100%; }
+  html { background: var(--bg); color: var(--ink); font: 14px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+  body { margin: 0; min-height: 100vh; background: var(--bg); }
+  ::selection { background: var(--accent); color: var(--accent-ink); }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-sm); }
+  * { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+  .num { font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  .muted { color: var(--ink-2); }
+  .faint { color: var(--ink-3); }
+  [hidden] { display: none !important; }
+
+  /* ---------- шапка ---------- */
+  .top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: var(--s4);
+         padding: 10px var(--s5); background: color-mix(in srgb, var(--bg) 88%, transparent);
+         backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 15px; letter-spacing: -.01em; }
+  .brand svg { color: var(--accent); }
+  .brand small { font-weight: 450; color: var(--ink-3); font-size: 13px; }
+  .env { display: flex; gap: 6px; flex-wrap: wrap; }
+  .env span { display: inline-flex; gap: 6px; align-items: baseline; padding: 3px 9px; border-radius: 99px;
+              background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; color: var(--ink-2); }
+  .env b { font-weight: 550; color: var(--ink); font-family: var(--mono); font-size: 11.5px; }
+  .session { margin-left: auto; display: flex; gap: var(--s2); align-items: center; }
+  .link-status { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2); }
+
+  input, select, button { font: inherit; color: inherit; }
+  input, select { height: 32px; padding: 0 10px; border-radius: var(--r-sm); border: 1px solid var(--line);
+                  background: var(--surface); }
+  input::placeholder { color: var(--ink-3); }
+  input:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  .btn { height: 32px; padding: 0 14px; border-radius: var(--r-sm); border: 1px solid var(--line); cursor: pointer;
+         background: var(--surface-2); font-weight: 520; display: inline-flex; align-items: center; gap: 7px;
+         transition: background .15s var(--ease), border-color .15s var(--ease), transform .1s var(--ease); white-space: nowrap; }
+  .btn:hover { background: var(--surface-3); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: default; transform: none; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, white); }
+  .btn.approve { background: var(--ok); border-color: var(--ok); color: #06200f; height: 38px; padding: 0 18px; }
+  :root[data-theme="light"] .btn.approve { color: #fff; }
+  .btn.reject { background: transparent; border-color: var(--bad-line); color: var(--bad); height: 38px; padding: 0 18px; }
+  .btn.reject:hover { background: var(--bad-wash); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--ink-2); padding: 0 8px; }
+  .btn.ghost:hover { background: var(--surface-2); color: var(--ink); }
+  .btn.busy { cursor: progress; }
+
+  /* ---------- раскладка ---------- */
+  .layout { display: grid; grid-template-columns: minmax(300px, 360px) minmax(0, 1fr); gap: var(--s5);
+            padding: var(--s5); max-width: 1560px; margin: 0 auto; align-items: start; }
+  @media (max-width: 980px) { .layout { grid-template-columns: 1fr; padding: var(--s4); gap: var(--s4); }
+                              .top { position: static; padding: 10px var(--s4); } .session { margin-left: 0; width: 100%; } }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); }
+  .queue { position: sticky; top: 72px; display: flex; flex-direction: column; max-height: calc(100vh - 96px); }
+  @media (max-width: 980px) { .queue { position: static; max-height: none; } }
+  .queue-head { padding: var(--s4) var(--s4) var(--s3); border-bottom: 1px solid var(--line); }
+  h1, h2, h3 { margin: 0; letter-spacing: -.01em; }
+  .queue-head h2 { font-size: 15px; font-weight: 620; display: flex; align-items: baseline; gap: 8px; }
+  .filters { display: grid; grid-template-columns: repeat(4, auto); justify-content: stretch; gap: 2px; margin-top: var(--s3); padding: 3px;
+             background: var(--surface-2); border-radius: var(--r-md); }
+  .filters button { height: 28px; padding: 0 8px; border-radius: 7px; border: 1px solid transparent; background: transparent;
+                    color: var(--ink-2); cursor: pointer; font-size: 12.5px; display: inline-flex; gap: 5px; align-items: center;
+                    justify-content: center; white-space: nowrap; }
+  .filters button:hover { background: var(--surface-2); color: var(--ink); }
+  .filters button[aria-pressed="true"] { background: var(--surface-3); color: var(--ink); border-color: var(--line); }
+  .filters .count { font-variant-numeric: tabular-nums; color: var(--ink-3); }
+  .filters button[aria-pressed="true"] .count { color: var(--ink-2); }
+
+  .incidents { list-style: none; margin: 0; padding: var(--s2); overflow-y: auto; flex: 1; min-height: 120px; }
+  .incidents li + li { margin-top: 2px; }
+  .inc { width: 100%; text-align: left; background: transparent; border: 1px solid transparent; border-radius: var(--r-md);
+         padding: 10px 12px; cursor: pointer; display: grid; grid-template-columns: 12px 1fr auto; gap: 2px 10px;
+         align-items: center; transition: background .15s var(--ease); }
+  .inc:hover { background: var(--surface-2); }
+  .inc[aria-current="true"] { background: var(--surface-3); border-color: var(--line); }
+  .inc .id { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .inc .st { font-size: 12px; color: var(--ink-2); }
+  .inc .sub { grid-column: 2 / 4; font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* лампа состояния */
+  .lamp { width: 10px; height: 10px; border-radius: 50%; background: var(--busy); flex: none;
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--lamp, var(--busy)) 18%, transparent); --lamp: var(--busy); }
+  .lamp.ok { background: var(--ok); --lamp: var(--ok); } .lamp.wait { background: var(--wait); --lamp: var(--wait); }
+  .lamp.bad { background: var(--bad); --lamp: var(--bad); } .lamp.off { background: var(--ink-3); --lamp: var(--ink-3); }
+  .lamp.wait.live { animation: pulse 1.8s var(--ease) infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--wait) 0%, transparent); } }
+  @media (prefers-reduced-motion: reduce) { .lamp.wait.live { animation: none; } * { transition: none !important; } }
+
+  .demo { border-top: 1px solid var(--line); padding: var(--s3) var(--s4) var(--s4); display: grid; gap: var(--s2); }
+  .demo .label { font-size: 12px; color: var(--ink-3); display: flex; align-items: center; gap: 6px; }
+  .demo .row { display: flex; gap: var(--s2); }
+  .demo select { flex: 1; min-width: 0; }
+  .error { margin: 0; padding: 0 var(--s4) var(--s3); color: var(--bad); font-size: 12.5px; }
+  .error:empty { display: none; }
+
+  /* ---------- карточка ---------- */
+  .card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s4); min-width: 0; }
+  .card-head { padding: var(--s5); display: grid; gap: var(--s3); }
+  .title-row { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+  .title-row h1 { font-size: 24px; font-weight: 680; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .state { display: inline-flex; align-items: center; gap: 8px; padding: 4px 12px 4px 10px; border-radius: 99px;
+           border: 1px solid var(--line); background: var(--surface-2); font-weight: 560; font-size: 13px; }
+  .facts { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); margin: 0; }
+  .facts div { display: grid; gap: 1px; }
+  .facts dt { font-size: 12px; color: var(--ink-3); }
+  .facts dd { margin: 0; font-weight: 520; }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+  .chip { font-family: var(--mono); font-size: 11.5px; padding: 2px 7px; border-radius: var(--r-sm);
+          background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap; }
+  .chip.neural { border-color: var(--neural-line); color: var(--neural); background: var(--neural-wash); }
+  .chip.ok { color: var(--ok); } .chip.bad { color: var(--bad); border-color: var(--bad-line); }
+  .chip.wait { color: var(--wait); border-color: var(--wait-line); }
+  .integrity { display: inline-flex; align-items: center; gap: 6px; }
+  .integrity.ok { color: var(--ok); } .integrity.bad { color: var(--bad); }
+
+  /* решение дежурного */
+  .decision { border-radius: var(--r-lg); border: 1px solid var(--wait-line); background: var(--wait-wash); padding: var(--s5);
+              display: grid; gap: var(--s4); }
+  .decision.bad { border-color: var(--bad-line); background: var(--bad-wash); }
+  .decision.ok { border-color: color-mix(in srgb, var(--ok) 40%, transparent); background: color-mix(in srgb, var(--ok) 7%, transparent); }
+  .decision h2 { font-size: 16px; font-weight: 640; display: flex; align-items: center; gap: 10px; }
+  .decision .what { display: flex; align-items: baseline; gap: var(--s3); flex-wrap: wrap; }
+  .decision .action { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: -.01em; }
+  .decision .why { margin: 0; color: var(--ink-2); max-width: 75ch; }
+  .decision .why b { color: var(--ink); font-weight: 560; }
+  .decision .actions { display: flex; gap: var(--s2); flex-wrap: wrap; align-items: center; }
+  .decision .actions .hint { font-size: 12.5px; color: var(--ink-3); margin-left: var(--s2); }
+
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--s4); align-items: start; }
+  @media (max-width: 1240px) { .grid2 { grid-template-columns: 1fr; } }
+  .block { padding: var(--s5); display: grid; gap: var(--s4); min-width: 0; }
+  .block-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); flex-wrap: wrap; }
+  .block-head h2 { font-size: 15px; font-weight: 620; }
+  .legend { display: flex; gap: var(--s3); flex-wrap: wrap; font-size: 12px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+
+  /* каскад решения */
+  .trace { list-style: none; margin: 0; padding: 0; position: relative; }
+  .trace::before { content: ""; position: absolute; left: 13px; top: 14px; bottom: 14px; width: 2px; background: var(--line); border-radius: 1px; }
+  .step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--s3); padding: 6px 0; }
+  .node { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--surface);
+          border: 2px solid var(--line); color: var(--ink-2); position: relative; z-index: 1; }
+  .step.neural .node { border-color: var(--neural); color: var(--neural); background: var(--surface); }
+  .step.human .node { border-color: var(--wait); color: var(--wait); }
+  .step.pass .node { border-color: var(--ok); color: var(--ok); }
+  .step.fail .node { border-color: var(--bad); color: var(--bad); }
+  .step.pending .node { border-style: dashed; color: var(--ink-3); }
+  .step .body { padding: 2px 0 4px; min-width: 0; display: grid; gap: 4px; }
+  .step .line1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+  .step .who { font-weight: 600; }
+  .step .kind { font-size: 11px; letter-spacing: .02em; color: var(--ink-3); }
+  .step.neural .kind { color: var(--neural); }
+  .step .t { margin-left: auto; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .step .detail { color: var(--ink-2); font-size: 13px; }
+  .step.pending .who, .step.pending .detail { color: var(--ink-3); }
+  .untrusted { margin-top: 2px; padding: 8px 12px; border-radius: var(--r-md); background: var(--neural-wash);
+               border: 1px dashed var(--neural-line); font-size: 13px; color: var(--ink); max-width: 75ch; }
+  .untrusted .tag { display: block; font-size: 11px; color: var(--neural); margin-bottom: 2px; }
+
+  /* уверенность */
+  .conf-top { display: flex; align-items: baseline; gap: var(--s3); }
+  .conf-value { font-size: 34px; font-weight: 680; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1; }
+  .conf-verdict { font-size: 13px; color: var(--ink-2); }
+  .meter { position: relative; padding: 20px 0 22px; }
+  .meter .track { display: flex; gap: 2px; height: 14px; background: var(--surface-3); border-radius: 4px; overflow: hidden; }
+  .meter .seg { height: 100%; }
+  .meter .seg:first-child { border-radius: 4px 0 0 4px; }
+  .meter .seg:last-child { border-radius: 0 4px 4px 0; }
+  .tick { position: absolute; top: 14px; bottom: 16px; width: 0; border-left: 1px solid var(--ink-3); }
+  .tick span { position: absolute; top: -16px; transform: translateX(-50%); font-size: 11px; color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .tick.below span { top: auto; bottom: -20px; }
+  .terms { display: grid; grid-template-columns: auto 1fr auto; gap: 6px var(--s3); margin: 0; font-size: 13px; align-items: center; }
+  .terms dt { display: flex; align-items: center; gap: 8px; color: var(--ink-2); }
+  .terms dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .terms dd.calc { color: var(--ink-3); font-family: var(--mono); font-size: 12px; }
+  .terms dd.val { text-align: right; font-weight: 560; }
+
+  /* таблицы */
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th { text-align: left; font-weight: 500; font-size: 12px; color: var(--ink-3); padding: 0 10px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.chosen td { background: var(--neural-wash); }
+  tr.chosen td:first-child { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+  tr.chosen td:last-child { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+  .rank { color: var(--ink-3); font-variant-numeric: tabular-nums; width: 1%; }
+  .scroll { overflow-x: auto; }
+
+  .stages { display: flex; flex-wrap: wrap; gap: var(--s2); }
+  .stage { padding: 8px 12px; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--line); min-width: 104px; }
+  .stage .k { font-size: 12px; color: var(--ink-3); }
+  .stage .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stage.neural { border-color: var(--neural-line); }
+  .stage.neural .k { color: var(--neural); }
+
+  details.audit { display: block; }
+  details.audit > summary { list-style: none; cursor: pointer; display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+  details.audit > summary::-webkit-details-marker { display: none; }
+  details.audit > summary h2 { font-size: 15px; font-weight: 620; display: flex; align-items: center; gap: 8px; }
+  details.audit > summary svg { transition: transform .2s var(--ease); color: var(--ink-3); }
+  details.audit[open] > summary svg { transform: rotate(90deg); }
+  .audit-table { max-height: 420px; overflow: auto; margin-top: var(--s3); }
+  .audit-table th { position: sticky; top: 0; background: var(--surface); }
+  td.payload { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); word-break: break-word; min-width: 260px; }
+  td.ev { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+
+  /* пустые состояния */
+  .empty { padding: var(--s6) var(--s5); display: grid; gap: var(--s3); justify-items: start; max-width: 60ch; }
+  .empty h2 { font-size: 18px; font-weight: 640; }
+  .empty p { margin: 0; color: var(--ink-2); }
+  .empty ol { margin: 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 4px; }
+  .empty code { font-family: var(--mono); font-size: 12.5px; background: var(--surface-2); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+  .queue-empty { padding: var(--s5) var(--s3); color: var(--ink-3); font-size: 13px; }
+  .skeleton { height: 54px; border-radius: var(--r-md); background: linear-gradient(90deg, var(--surface-2), var(--surface-3), var(--surface-2)); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; margin: 4px 0; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
 </style>
 </head>
 <body>
-<header>
-  <h1>Sentinel</h1>
-  <span class="meta" id="meta">не подключено</span>
-  <form id="login" autocomplete="off">
-    <input id="token" type="password" placeholder="токен дежурного" aria-label="Токен дежурного">
-    <button class="primary" type="submit">Подключиться</button>
-  </form>
+<header class="top">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2.5 4 5.6v6.1c0 4.7 3.4 8.6 8 9.8 4.6-1.2 8-5.1 8-9.8V5.6l-8-3.1Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 12.3h2.6l1.4-3.1 1.8 5.6 1.3-2.5H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Sentinel <small>панель дежурного</small></span>
+  </div>
+  <div class="env" id="env" aria-label="Конфигурация системы"></div>
+  <div class="session">
+    <span class="link-status" id="link"><span class="lamp off"></span><span id="link-text">не подключено</span></span>
+    <form id="login" autocomplete="off" class="session">
+      <input id="token" type="password" placeholder="токен дежурного" aria-label="Токен дежурного" required>
+      <button class="btn primary" type="submit">Подключиться</button>
+    </form>
+    <button class="btn ghost" id="logout" type="button" hidden>Отключиться</button>
+    <button class="btn ghost" id="theme" type="button" aria-label="Сменить тему" title="Сменить тему">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
 </header>
-<main>
-  <section aria-label="Инциденты">
-    <h2>Инциденты</h2>
-    <ul class="list" id="incidents"><li class="empty">Нет данных</li></ul>
-    <div class="demo" id="demo" hidden>
-      <span class="label">Демонстрация (только в режиме разработки)</span>
-      <select id="fault" aria-label="Сбой"></select>
-      <button id="inject" type="button">Внести сбой</button>
-      <button id="tick" type="button" title="20 измерений по 5 с">Шаг ×20</button>
+
+<main class="layout">
+  <aside class="panel queue" aria-label="Очередь инцидентов">
+    <div class="queue-head">
+      <h2>Инциденты <span class="faint num" id="total"></span></h2>
+      <div class="filters" id="filters" role="group" aria-label="Фильтр по состоянию"></div>
     </div>
+    <ul class="incidents" id="incidents"></ul>
     <p class="error" id="error" role="alert"></p>
-  </section>
-  <section aria-label="Карточка инцидента" id="card"><div class="empty">Выберите инцидент</div></section>
+    <div class="demo" id="demo" hidden>
+      <span class="label">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 3h6M10 3v6L4.5 18.5A1.6 1.6 0 0 0 5.9 21h12.2a1.6 1.6 0 0 0 1.4-2.5L14 9V3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Имитатор сервиса · только в режиме разработки
+      </span>
+      <div class="row">
+        <select id="fault" aria-label="Вид сбоя"></select>
+        <button class="btn" id="inject" type="button">Внести сбой</button>
+      </div>
+      <button class="btn" id="tick" type="button" title="20 измерений по 5 с">Продвинуть время на 100 с</button>
+    </div>
+  </aside>
+
+  <section class="card" id="card" aria-live="polite" aria-label="Карточка инцидента"></section>
 </main>
+
 <script>
 "use strict";
 // Все данные (включая текст от модели и логов) выводятся только через textContent: это недоверенный ввод.
 const $ = (id) => document.getElementById(id);
-let token = sessionStorage.getItem("sentinel-token") || "";
+const store = {
+  get(k) { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { v == null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch { /* приватный режим */ } },
+};
+let token = store.get("sentinel-token") || "";
+let cfg = null;
 let selected = null;
+let filter = "all";
+let lastList = "", lastCard = "";
+let auditOpen = true;
 
+// ---------- словари: идентификаторы системы -> язык дежурного ----------
+const STATE = {
+  NEW: ["Новый", "busy"], DIAGNOSING: ["Диагностика", "busy"], PLANNED: ["Действие выбрано", "busy"],
+  AWAITING_APPROVAL: ["Ждёт решения", "wait"], ACTING: ["Исполнение", "busy"], VERIFYING: ["Проверка результата", "busy"],
+  RESOLVED: ["Устранён", "ok"], ESCALATED: ["Передан человеку", "bad"],
+};
+const GROUPS = [
+  ["all", "Все", () => true],
+  ["wait", "Решение", (s) => s === "AWAITING_APPROVAL"],
+  ["busy", "В работе", (s) => STATE[s]?.[1] === "busy"],
+  ["done", "Закрыты", (s) => s === "RESOLVED" || s === "ESCALATED"],
+];
+const POLICY = {
+  P1: "действие вне реестра или недопустимые параметры", P2: "в логах персональные данные",
+  P3: "подозрение на внедрение команды через логи", P4: "действие высокого риска требует подтверждения",
+  P5: "уверенность ниже порога эскалации", P6: "уверенность ниже порога автоисполнения",
+  P7: "превышено число попыток или не истёк период охлаждения",
+};
+const VERIFY = { V2: "инструкции нет среди найденных", V3: "действие не из перечня инструкции",
+                 V4: "сигналы не согласуются с инструкцией", V5: "параметры вне допустимых пределов" };
+const VERDICT = { AUTO_EXECUTE: "исполнить автоматически", REQUIRE_APPROVAL: "нужно подтверждение дежурного",
+                  ESCALATE: "передать человеку", DENY: "запретить", NOT_CHECKED: "не проверялось (режим llm_only)" };
+const REASON = {
+  no_knowledge: "в базе знаний нет подходящей инструкции", all_hypotheses_rejected: "все гипотезы модели отклонены верификатором",
+  approval_rejected: "дежурный отклонил действие", budget_exceeded: "исчерпан бюджет обработки 120 с",
+  llm_unavailable: "языковая модель недоступна", insufficient_data: "недостаточно данных для диагноза",
+  llm_invalid_response: "ответ модели не соответствует схеме", hypotheses_exhausted: "гипотезы исчерпаны",
+  policy_escalate: "политика требует передать инцидент человеку", policy_deny: "политика запретила действие",
+  execution_failed: "действие не выполнено", result_not_confirmed: "результат не подтверждён проверкой",
+};
+const STAGE = [["context", "Контекст", false], ["retrieval", "Поиск", true], ["llm", "Модель", true],
+               ["verification", "Верификатор", false], ["policy", "Политика", false], ["execution", "Исполнение", false]];
+
+// ---------- утилиты ----------
 function el(tag, attrs = {}, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
-    if (k === "class") node.className = v; else if (k === "text") node.textContent = v; else node.setAttribute(k, v);
+    if (v == null || v === false) continue;
+    if (k === "class") node.className = v; else if (k === "text") node.textContent = v;
+    else if (k === "style") node.setAttribute("style", v); else node.setAttribute(k, v === true ? "" : v);
   }
-  for (const c of children) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  for (const c of children.flat()) if (c != null && c !== false) node.append(c instanceof Node ? c : document.createTextNode(String(c)));
   return node;
+}
+const NS = "http://www.w3.org/2000/svg";
+function icon(name, size = 14) {
+  const paths = {
+    check: "M5 12.5 10 17 19 7", cross: "M7 7l10 10M17 7 7 17", bell: "M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16Zm4 4h4",
+    search: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm5-2 4 4", spark: "M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18",
+    shield: "M12 3 5 6v5.5c0 4.2 3 7.7 7 8.8 4-1.1 7-4.6 7-8.8V6l-7-3Z", scale: "M12 4v16M5 8h14M5 8l-3 6a3.5 3.5 0 0 0 6 0L5 8Zm14 0-3 6a3.5 3.5 0 0 0 6 0l-3-6Z",
+    user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-7 8a7 7 0 0 1 14 0", bolt: "M13 3 5 13h6l-1 8 8-10h-6l1-8Z",
+    flag: "M5 21V4h11l-2 4 2 4H5", chevron: "M9 6l6 6-6 6", radar: "M12 12 18 6M12 21a9 9 0 1 1 9-9M12 16a4 4 0 1 1 4-4",
+    lock: "M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z",
+  };
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("width", size); svg.setAttribute("height", size); svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none"); svg.setAttribute("aria-hidden", "true");
+  const p = document.createElementNS(NS, "path");
+  p.setAttribute("d", paths[name]); p.setAttribute("stroke", "currentColor"); p.setAttribute("stroke-width", "2");
+  p.setAttribute("stroke-linecap", "round"); p.setAttribute("stroke-linejoin", "round");
+  svg.append(p);
+  return svg;
+}
+// Числа — с десятичной запятой и фиксированной точностью (как в записке).
+const num = (v, d = 2) => (v == null ? "—" : Number(v).toFixed(d).replace(".", ","));
+const ms = (v) => (v >= 1000 ? `${num(v / 1000, 1)} с` : `${num(v, v < 10 ? 1 : 0)} мс`);
+const params = (p) => Object.entries(p || {}).map(([k, v]) => `${k}=${v}`).join(", ");
+const stateOf = (s) => STATE[s] || [s, "busy"];
+function lamp(state, live = false) {
+  const kind = stateOf(state)[1];
+  return el("span", { class: `lamp ${kind}${live && kind === "wait" ? " live" : ""}`, "aria-hidden": "true" });
 }
 
 async function api(path, method = "GET") {
   const res = await fetch(path, { method, headers: { Authorization: `Bearer ${token}` } });
-  if (res.status === 401) { throw new Error("Неверный токен"); }
-  if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || res.statusText); }
+  if (res.status === 401) throw new Error("Токен не принят: проверьте значение SENTINEL_API_TOKEN на сервере.");
+  if (!res.ok) { const body = await res.json().catch(() => ({})); throw new Error(body.detail || `${res.status} ${res.statusText}`); }
   return res.json();
 }
+function showError(e) { $("error").textContent = e ? e.message : ""; }
 
-// Числа в интерфейсе — с десятичной запятой и фиксированной точностью (как в записке).
-const num = (v, d = 2) => (v == null ? "—" : Number(v).toFixed(d).replace(".", ","));
+// ---------- шапка ----------
+function renderSession() {
+  const on = Boolean(cfg);
+  $("login").hidden = on; $("logout").hidden = !on;
+  $("link").replaceChildren(el("span", { class: `lamp ${on ? "ok" : "off"}` }), el("span", { text: on ? "подключено" : "не подключено" }));
+  $("env").replaceChildren(...(on ? [
+    ["сервис", cfg.service], ["режим", cfg.mode], ["модель", cfg.llm], ["эмбеддинги", cfg.embedder], ["инструкций", cfg.runbooks],
+  ].map(([k, v]) => el("span", {}, k, el("b", { text: v }))) : []));
+  $("demo").hidden = !(on && cfg.dev);
+}
 
-function badge(state) { return el("span", { class: `badge ${state}`, text: state }); }
-
-function renderList(items) {
+// ---------- очередь ----------
+function renderQueue(items) {
+  const counts = Object.fromEntries(GROUPS.map(([k, , f]) => [k, items.filter((i) => f(i.state)).length]));
+  $("total").textContent = items.length ? String(items.length) : "";
+  const hints = { all: "Все инциденты", wait: "Ждут решения дежурного", busy: "Обрабатываются системой", done: "Устранены или переданы человеку" };
+  $("filters").replaceChildren(...GROUPS.map(([k, label]) => {
+    const b = el("button", { type: "button", "aria-pressed": String(filter === k), title: hints[k] },
+      k === "wait" && counts.wait ? el("span", { class: "lamp wait live", "aria-hidden": "true", style: "width:7px;height:7px" }) : null,
+      label, el("span", { class: "count", text: counts[k] }));
+    b.addEventListener("click", () => { filter = k; lastList = ""; renderQueue(items); });
+    return b;
+  }));
+  const shown = items.filter((i) => GROUPS.find(([k]) => k === filter)[2](i.state));
   const ul = $("incidents");
-  ul.replaceChildren();
-  if (!items.length) { ul.append(el("li", { class: "empty", text: "Инцидентов нет" })); return; }
-  for (const it of items) {
-    const li = el("li", { tabindex: "0" },
-      el("div", { class: "row" }, el("strong", { text: it.id }), badge(it.state)),
-      el("div", { class: "sig", text: `${it.rule} · ${it.signals.join(", ") || "без сигналов"}` }));
-    if (it.id === selected) li.classList.add("active");
-    li.addEventListener("click", () => { selected = it.id; refresh(); });
-    li.addEventListener("keydown", (e) => { if (e.key === "Enter") { selected = it.id; refresh(); } });
-    ul.append(li);
+  if (!items.length) {
+    ul.replaceChildren(el("li", { class: "queue-empty", text: cfg?.dev
+      ? "Инцидентов пока нет. Внесите сбой в имитатор ниже и продвиньте время."
+      : "Инцидентов нет. Детектор опрашивает сервис каждые 5 с." }));
+    return;
   }
+  if (!shown.length) { ul.replaceChildren(el("li", { class: "queue-empty", text: "В этой группе инцидентов нет." })); return; }
+  ul.replaceChildren(...shown.map((it) => {
+    const b = el("button", { type: "button", class: "inc", "aria-current": String(it.id === selected) },
+      lamp(it.state, true), el("span", { class: "id", text: it.id }), el("span", { class: "st", text: stateOf(it.state)[0] }),
+      el("span", { class: "sub", text: `${it.rule} · ${it.signals.join(" ") || "без сигналов"}` }));
+    b.addEventListener("click", () => select(it.id));
+    return el("li", {}, b);
+  }));
+}
+function select(id) { selected = id; lastCard = ""; lastList = ""; refresh(); }
+
+// ---------- карточка: шапка ----------
+function head(c) {
+  const [label] = stateOf(c.state);
+  return el("div", { class: "panel card-head" },
+    el("div", { class: "title-row" }, el("h1", { text: c.id }),
+      el("span", { class: "state" }, lamp(c.state, true), label)),
+    el("dl", { class: "facts" },
+      el("div", {}, el("dt", { text: "Правило детектора" }), el("dd", {}, el("span", { class: "mono", text: c.rule }),
+        el("span", { class: "faint", text: c.source === "anomaly" ? " · Isolation Forest" : " · продукционное" }))),
+      el("div", {}, el("dt", { text: "Сигналы" }), el("dd", {}, el("span", { class: "chips" },
+        c.signals.length ? c.signals.map((s) => el("span", { class: "chip", text: s })) : el("span", { class: "faint", text: "нет" })))),
+      el("div", {}, el("dt", { text: "Открыт" }), el("dd", { class: "num", text: `t = ${num(c.opened_at, 0)} с` })),
+      c.closed_at != null ? el("div", {}, el("dt", { text: "Время до закрытия" }),
+        el("dd", { class: "num", text: `${num(c.closed_at - c.opened_at, 1)} с` })) : null,
+      el("div", {}, el("dt", { text: "Журнал аудита" }), el("dd", {}, el("span", { class: `integrity ${c.chain_ok ? "ok" : "bad"}` },
+        icon(c.chain_ok ? "lock" : "cross"), c.chain_ok ? "хэш-цепочка цела" : "ЦЕПОЧКА НАРУШЕНА"))),
+    ));
 }
 
-function confidence(h) {
-  const pct = Math.round(h.confidence * 100);
-  return el("span", {}, el("span", { class: "bar" }, el("span", { style: `width:${pct}%` })),
-    `${num(h.confidence)} = 0,3·${num(h.c_llm)} (модель) + 0,2·${num(h.s_ret)} (поиск) + 0,5·${num(h.m_sig)} (сигналы)`);
+// ---------- карточка: решение ----------
+function lastPolicy(audit) { return [...audit].reverse().find((e) => e.type === "decision")?.payload; }
+
+function decisionBlock(c) {
+  const pol = lastPolicy(c.audit);
+  if (c.pending) {
+    const h = c.pending;
+    const approve = el("button", { class: "btn approve", type: "button" }, icon("check", 16), "Подтвердить действие");
+    const reject = el("button", { class: "btn reject", type: "button" }, icon("cross", 16), "Отклонить");
+    approve.addEventListener("click", () => decide(c.id, "approve", [approve, reject]));
+    reject.addEventListener("click", () => decide(c.id, "reject", [approve, reject]));
+    const fired = pol?.fired || [];
+    return el("div", { class: "decision", role: "region", "aria-label": "Требуется решение дежурного" },
+      el("h2", {}, el("span", { class: "lamp wait live" }), "Требуется ваше решение"),
+      el("div", { class: "what" }, el("span", { class: "action", text: h.action }),
+        params(h.params) ? el("span", { class: "chip", text: params(h.params) }) : null,
+        el("span", { class: "muted" }, "по инструкции ", el("b", { class: "mono", text: h.runbook }))),
+      el("p", { class: "why" }, "Политика остановила автоматическое исполнение: ",
+        ...fired.flatMap((r, i) => [i ? "; " : "", el("b", { text: r }), ` — ${POLICY[r] || r}`]),
+        fired.length ? ". " : "", `Итоговая уверенность ${num(h.confidence)}.`),
+      el("div", { class: "actions" }, approve, reject,
+        el("span", { class: "hint", text: "Решение записывается в журнал от имени дежурного" })));
+  }
+  if (c.state === "ESCALATED") {
+    return el("div", { class: "decision bad", role: "region", "aria-label": "Инцидент передан человеку" },
+      el("h2", {}, el("span", { class: "lamp bad" }), "Передан человеку"),
+      el("p", { class: "why" }, el("b", { text: REASON[c.reason] || c.reason || "причина не указана" }),
+        el("span", { class: "faint mono", text: c.reason ? `  ${c.reason}` : "" }),
+        el("br"), "Автоматических действий по устранению не выполнялось или они не дали результата; созданы тикет и уведомление дежурному."));
+  }
+  if (c.state === "RESOLVED" && c.diagnosis) {
+    return el("div", { class: "decision ok", role: "region", "aria-label": "Инцидент устранён" },
+      el("h2", {}, el("span", { class: "lamp ok" }), "Устранён"),
+      el("p", { class: "why" }, "Выполнено ", el("b", { class: "mono", text: c.diagnosis.action }),
+        ` по инструкции ${c.diagnosis.runbook}; критерии успеха инструкции подтверждены двумя проверками подряд` +
+        (c.approvals ? ", действие подтверждено дежурным." : ", подтверждение не требовалось.")));
+  }
+  return null;
 }
 
-function hypothesisBlock(h) {
-  return el("dl", {},
-    el("dt", { text: "Инструкция" }), el("dd", { text: h.runbook }),
-    el("dt", { text: "Причина" }), el("dd", { text: h.cause }),
-    el("dt", { text: "Объяснение" }), el("dd", { text: h.explanation }),
-    el("dt", { text: "Действие" }), el("dd", { text: `${h.action} ${JSON.stringify(h.params)}` }),
-    el("dt", { text: "Уверенность C" }), el("dd", {}, confidence(h)));
+// ---------- карточка: каскад решения ----------
+function traceSteps(c) {
+  const steps = [];
+  const add = (s) => steps.push(s);
+  for (const e of c.audit) {
+    const p = e.payload || {};
+    const t = `t = ${num(e.ts, 0)} с`;
+    switch (e.type) {
+      case "incident_opened":
+        add({ who: "Детектор", kind: p.source === "anomaly" ? "статистика" : "правила", cls: "", ic: "radar", t,
+              detail: [`правило ${p.rule}`, p.signals?.length ? `сигналы: ${p.signals.join(", ")}` : "без сигналов"].join(" · ") });
+        break;
+      case "retrieved":
+        add({ who: "Поиск инструкций", kind: "нейросеть + предфильтр", cls: "neural", ic: "search", t,
+              detail: p.runbooks?.length ? `кандидатов: ${p.runbooks.length}, первый ${p.runbooks[0][0]}${p.degraded ? " · только BM25 (эмбеддинги недоступны)" : ""}` : "подходящих инструкций нет" });
+        break;
+      case "llm_response": {
+        const h = p.hypotheses?.[0];
+        add({ who: "Языковая модель", kind: "нейросеть · предлагает", cls: "neural", ic: "spark", t,
+              detail: h ? `гипотеза: ${h.runbook_id || h.runbook || "?"} → ${h.action}, собственная оценка ${num(h.confidence)}` +
+                          (p.attempt > 1 ? ` · попытка ${p.attempt}` : "") : "гипотез нет",
+              untrusted: h?.cause });
+        break;
+      }
+      case "llm_invalid": add({ who: "Языковая модель", kind: "нейросеть", cls: "neural fail", ic: "spark", t, detail: `ответ не по схеме (попытка ${p.attempt})` }); break;
+      case "llm_error": add({ who: "Языковая модель", kind: "нейросеть", cls: "neural fail", ic: "spark", t, detail: "модель недоступна" }); break;
+      case "verified":
+        add({ who: "Верификатор", kind: "правила V2–V5", cls: p.ok ? "pass" : "fail", ic: p.ok ? "check" : "cross", t,
+              detail: p.ok ? `${p.runbook} → ${p.action}: проверки пройдены, уверенность ${num(p.confidence)}`
+                           : `${p.runbook} → ${p.action}: отклонено — ${p.failed.map((v) => `${v} ${VERIFY[v] || ""}`).join("; ")}` });
+        break;
+      case "decision":
+        add({ who: "Политика", kind: "правила P1–P7", cls: p.verdict === "AUTO_EXECUTE" ? "pass" : p.verdict === "REQUIRE_APPROVAL" ? "human" : p.verdict === "NOT_CHECKED" ? "" : "fail",
+              ic: "scale", t, detail: `${p.action}: ${VERDICT[p.verdict] || p.verdict}${p.fired?.length ? ` · сработали ${p.fired.join(", ")}` : " · ни одно правило не сработало"}` });
+        break;
+      case "approval":
+        add({ who: e.actor === "human:auto" ? "Дежурный (имитация)" : "Дежурный", kind: "человек", cls: p.approved ? "human pass" : "human fail", ic: "user", t,
+              detail: p.approved ? `подтвердил${p.label ? ` (${p.label})` : ""}` : "отклонил действие" });
+        break;
+      case "executed": add({ who: "Исполнитель", kind: "реестр действий", cls: p.status === "failed" ? "fail" : "pass", ic: "bolt", t, detail: `${p.action}: ${p.status}${p.detail ? ` · ${p.detail}` : ""}` }); break;
+      case "result_check": add({ who: "Проверка результата", kind: "критерии инструкции", cls: p.ok ? "pass" : "fail", ic: p.ok ? "check" : "cross", t, detail: `${p.ok ? "подтверждено" : "не подтверждено"}: ${(p.criteria || []).join(", ")}` }); break;
+      case "escalation_action": add({ who: "Исполнитель", kind: "реестр действий", cls: "", ic: "bell", t, detail: `${p.action}: ${p.status}` }); break;
+      case "escalated": add({ who: "Итог", kind: "", cls: "fail", ic: "flag", t, detail: `передан человеку — ${REASON[p.reason] || p.reason}` }); break;
+      case "resolved": add({ who: "Итог", kind: "", cls: "pass", ic: "flag", t, detail: "инцидент устранён" }); break;
+      default: break;                                                     // переходы состояний — в журнале ниже
+    }
+  }
+  if (c.state === "AWAITING_APPROVAL") add({ who: "Дежурный", kind: "человек", cls: "human pending", ic: "user", detail: "ожидается решение" });
+  // время имитатора показывается только при изменении: шаги одного момента не повторяют метку
+  let prev = null;
+  for (const s of steps) { if (s.t === prev) s.t = null; else prev = s.t; }
+  return steps;
+}
+
+function traceBlock(c) {
+  const steps = traceSteps(c);
+  return el("div", { class: "panel block" },
+    el("div", { class: "block-head" }, el("h2", { text: "Каскад решения" }),
+      el("div", { class: "legend" },
+        el("span", {}, el("span", { class: "sw", style: "background:var(--neural)" }), "нейросеть предлагает"),
+        el("span", {}, el("span", { class: "sw", style: "background:var(--ink-3)" }), "символьный слой проверяет и решает"))),
+    el("ol", { class: "trace" }, steps.map((s) => el("li", { class: `step ${s.cls}` },
+      el("span", { class: "node" }, icon(s.ic)),
+      el("div", { class: "body" },
+        el("div", { class: "line1" }, el("span", { class: "who", text: s.who }), s.kind ? el("span", { class: "kind", text: s.kind }) : null,
+          s.t ? el("span", { class: "t", text: s.t }) : null),
+        el("div", { class: "detail", text: s.detail }),
+        s.untrusted ? el("div", { class: "untrusted" }, el("span", { class: "tag", text: "Объяснение модели · недоверенный текст, на решение не влияет" }), s.untrusted) : null)))));
+}
+
+// ---------- карточка: уверенность ----------
+function confidenceBlock(h) {
+  const w = cfg?.weights || { llm: 0.3, ret: 0.2, sig: 0.5 };
+  const th = cfg?.thresholds || { escalate: 0.4, auto_low: 0.7, auto_medium: 0.85 };
+  const parts = [
+    ["Модель", "c_llm", h.c_llm, w.llm, "var(--neural)"],
+    ["Поиск", "s_ret", h.s_ret, w.ret, "var(--neural-2)"],
+    ["Сигналы", "m_sig", h.m_sig, w.sig, "var(--symbolic)"],
+  ];
+  const ticks = [[th.escalate, "эскалация", false], [th.auto_low, "авто · низкий риск", true], [th.auto_medium, "авто · средний", false]];
+  const verdict = h.confidence < th.escalate ? "ниже порога эскалации" : h.confidence >= th.auto_medium ? "выше порогов автоисполнения"
+    : h.confidence >= th.auto_low ? "выше порога для действий низкого риска" : "между порогами эскалации и автоисполнения";
+  return el("div", { class: "panel block" },
+    el("div", { class: "block-head" }, el("h2", { text: "Итоговая уверенность" }),
+      el("span", { class: "faint", text: `инструкция ${h.runbook}` })),
+    el("div", { class: "conf-top" }, el("span", { class: "conf-value", text: num(h.confidence) }),
+      el("span", { class: "conf-verdict", text: verdict })),
+    el("div", { class: "meter", role: "img", "aria-label": `Уверенность ${num(h.confidence)} из 1` },
+      el("div", { class: "track" }, parts.map(([name, , v, k, color]) =>
+        el("span", { class: "seg", title: `${name}: ${num(k)} · ${num(v)} = ${num(k * v, 3)}`, style: `width:${(k * v * 100).toFixed(2)}%;background:${color}` }))),
+      ticks.map(([v, label, below]) => el("span", { class: `tick${below ? " below" : ""}`, style: `left:${v * 100}%` }, el("span", { text: `${label} ${num(v)}` })))),
+    el("dl", { class: "terms" }, parts.flatMap(([name, key, v, k, color]) => [
+      el("dt", {}, el("span", { class: "sw", style: `background:${color}` }), name),
+      el("dd", { class: "calc", text: `${num(k, 1)} · ${key} ${num(v)}` }),
+      el("dd", { class: "val", text: num(k * v, 3) }),
+    ])));
+}
+
+function retrievedBlock(c) {
+  const chosen = (c.pending || c.diagnosis)?.runbook;
+  return el("div", { class: "panel block" },
+    el("div", { class: "block-head" }, el("h2", { text: "Найденные инструкции" }),
+      el("span", { class: "faint", text: "BM25 + BGE-M3, слияние RRF" })),
+    el("div", { class: "scroll" }, el("table", {},
+      el("thead", {}, el("tr", {}, el("th", { text: "#" }), el("th", { text: "Инструкция" }), el("th", { text: "Заголовок" }), el("th", { class: "n", text: "s_ret" }))),
+      el("tbody", {}, c.retrieved.map((r, i) => el("tr", { class: r.runbook === chosen ? "chosen" : null },
+        el("td", { class: "rank", text: i + 1 }), el("td", { class: "mono", text: r.runbook }),
+        el("td", {}, r.title, r.runbook === chosen ? el("span", { class: "chip neural", style: "margin-left:8px", text: "выбрана" }) : null),
+        el("td", { class: "n", text: num(r.s_ret, 3) })))))));
+}
+
+function stagesBlock(c) {
+  const known = STAGE.filter(([k]) => k in c.timings_ms);
+  if (!known.length) return null;
+  return el("div", { class: "panel block" },
+    el("div", { class: "block-head" }, el("h2", { text: "Время этапов" }), el("span", { class: "faint", text: "настенное время обработки" })),
+    el("div", { class: "stages" }, known.map(([k, label, neural]) => el("div", { class: `stage${neural ? " neural" : ""}` },
+      el("div", { class: "k", text: label }), el("div", { class: "v", text: ms(c.timings_ms[k]) })))));
+}
+
+function auditBlock(c) {
+  const d = el("details", { class: "panel block audit", open: auditOpen },
+    el("summary", {}, el("h2", {}, icon("chevron"), "Журнал аудита"),
+      el("span", { class: "faint num", text: `${c.audit.length} записей · ${c.chain_ok ? "цепочка цела" : "цепочка нарушена"}` })),
+    el("div", { class: "audit-table" }, el("table", {},
+      el("thead", {}, el("tr", {}, ...["№", "t, с", "Субъект", "Событие", "Данные"].map((h, i) => el("th", { class: i < 2 ? "n" : null, text: h })))),
+      el("tbody", {}, c.audit.map((e) => el("tr", {},
+        el("td", { class: "n faint", text: e.seq }), el("td", { class: "n", text: num(e.ts, 0) }),
+        el("td", { class: "mono", text: e.actor }), el("td", { class: "ev", text: e.type }),
+        el("td", { class: "payload", text: JSON.stringify(e.payload) })))))));
+  d.addEventListener("toggle", () => { auditOpen = d.open; });
+  return d;
 }
 
 function renderCard(c) {
-  const box = $("card");
-  const parts = [
-    el("div", { class: "row" }, el("h2", { text: `Инцидент ${c.id}` }), badge(c.state)),
-    el("dl", {},
-      el("dt", { text: "Правило / источник" }), el("dd", { text: `${c.rule} / ${c.source}` }),
-      el("dt", { text: "Сигналы" }), el("dd", { class: "sig", text: c.signals.join(", ") || "—" }),
-      el("dt", { text: "Причина эскалации" }), el("dd", { text: c.reason || "—" }),
-      el("dt", { text: "Целостность журнала" }), el("dd", { text: c.chain_ok ? "подтверждена" : "НАРУШЕНА" }))];
-  if (c.pending) {
-    const approve = el("button", { class: "primary", type: "button", text: "Подтвердить" });
-    const reject = el("button", { class: "danger", type: "button", text: "Отклонить" });
-    approve.addEventListener("click", () => decide(c.id, "approve", [approve, reject]));
-    reject.addEventListener("click", () => decide(c.id, "reject", [approve, reject]));
-    parts.push(el("div", { class: "callout" },
-      el("strong", { text: "Требуется решение дежурного" }), hypothesisBlock(c.pending),
-      el("div", { class: "actions" }, approve, reject)));
-  } else if (c.diagnosis) {
-    parts.push(el("h3", { text: "Диагноз" }), hypothesisBlock(c.diagnosis));
-  }
-  if (c.retrieved.length) {
-    parts.push(el("h3", { text: "Найденные инструкции" }), el("table", {},
-      el("tr", {}, el("th", { text: "id" }), el("th", { text: "Заголовок" }), el("th", { text: "s_ret" })),
-      ...c.retrieved.map((r) => el("tr", {}, el("td", { text: r.runbook }), el("td", { text: r.title }), el("td", { text: num(r.s_ret, 3) })))));
-  }
-  const t = Object.entries(c.timings_ms).map(([k, v]) => `${k} ${num(v, 1)} мс`).join(" · ");
-  if (t) parts.push(el("h3", { text: "Время этапов" }), el("div", { class: "sig", text: t }));
-  parts.push(el("h3", { text: "Журнал аудита" }), el("table", {},
-    el("tr", {}, ...["№", "t, с", "Субъект", "Событие", "Данные"].map((h) => el("th", { text: h }))),
-    ...c.audit.map((e) => el("tr", {}, el("td", { text: e.seq }), el("td", { text: e.ts.toFixed(0) }),
-      el("td", { text: e.actor }), el("td", { text: e.type }), el("td", { class: "payload", text: JSON.stringify(e.payload) })))));
-  box.replaceChildren(...parts);
+  const h = c.pending || c.diagnosis;
+  $("card").replaceChildren(
+    head(c),
+    decisionBlock(c),
+    el("div", { class: "grid2" }, traceBlock(c),
+      el("div", { class: "card", style: "gap:var(--s4)" }, h ? confidenceBlock(h) : null, c.retrieved.length ? retrievedBlock(c) : null, stagesBlock(c))),
+    auditBlock(c));
 }
 
+function renderEmpty() {
+  const card = $("card");
+  if (!cfg) {
+    card.replaceChildren(el("div", { class: "panel empty" },
+      el("h2", { text: "Подключитесь к серверу Sentinel" }),
+      el("p", { text: "Панель не хранит данных: токен дежурного вводится в шапке и хранится только до закрытия вкладки." }),
+      el("ol", {}, el("li", {}, "Запустите сервер: ", el("code", { text: "SENTINEL_API_TOKEN=<токен> sentinel serve" })),
+        el("li", { text: "Введите тот же токен в поле справа вверху." }))));
+  } else {
+    card.replaceChildren(el("div", { class: "panel empty" },
+      el("h2", { text: "Выберите инцидент в очереди" }),
+      el("p", { text: "В карточке — каскад решения: что предложили нейросетевые компоненты, что проверили верификатор и политика и что требуется от вас." })));
+  }
+}
+
+// ---------- действия ----------
 async function decide(id, decision, buttons) {
-  buttons.forEach((b) => { b.disabled = true; });
-  try { await api(`/incidents/${encodeURIComponent(id)}/${decision}`, "POST"); } catch (e) { showError(e); }
-  refresh();
+  buttons.forEach((b) => { b.disabled = true; b.classList.add("busy"); });
+  try { await api(`/incidents/${encodeURIComponent(id)}/${decision}`, "POST"); showError(null); } catch (e) { showError(e); }
+  lastCard = ""; refresh();
 }
-
-function showError(e) { $("error").textContent = e ? e.message : ""; }
 
 async function refresh() {
-  if (!token) return;
+  if (!token || !cfg) return;
   try {
     const items = await api("/incidents");
-    renderList(items);
-    if (selected) renderCard(await api(`/incidents/${encodeURIComponent(selected)}`));
+    const sig = JSON.stringify([items, filter, selected]);
+    if (sig !== lastList) { lastList = sig; renderQueue(items); }
+    if (selected) {
+      const c = await api(`/incidents/${encodeURIComponent(selected)}`);
+      const cs = JSON.stringify(c);
+      if (cs !== lastCard) { lastCard = cs; renderCard(c); }       // без перерисовки, если ничего не изменилось
+    } else if (lastCard !== "empty") { lastCard = "empty"; renderEmpty(); }
     showError(null);
   } catch (e) { showError(e); }
 }
 
 async function connect() {
+  $("incidents").replaceChildren(el("li", { class: "skeleton" }), el("li", { class: "skeleton" }));
   try {
-    const cfg = await api("/config");
-    $("meta").textContent = `${cfg.service} · режим ${cfg.mode} · модель ${cfg.llm} · эмбеддинги ${cfg.embedder} · инструкций ${cfg.runbooks}`;
-    $("demo").hidden = !cfg.dev;
+    cfg = await api("/config");
     $("fault").replaceChildren(...cfg.faults.map((f) => el("option", { value: f, text: f })));
     showError(null);
-    refresh();
-  } catch (e) { showError(e); }
+  } catch (e) {
+    cfg = null; token = ""; store.set("sentinel-token", null); showError(e);
+    $("incidents").replaceChildren();
+  }
+  renderSession(); lastCard = ""; lastList = "";
+  if (cfg) refresh(); else renderEmpty();
 }
 
 $("login").addEventListener("submit", (e) => {
   e.preventDefault();
   token = $("token").value.trim();
-  sessionStorage.setItem("sentinel-token", token);
+  store.set("sentinel-token", token);
   $("token").value = "";
   connect();
 });
-$("inject").addEventListener("click", async () => {
-  try { await api(`/demo/faults/${encodeURIComponent($("fault").value)}`, "POST"); } catch (e) { showError(e); }
+$("logout").addEventListener("click", () => {
+  token = ""; cfg = null; selected = null; store.set("sentinel-token", null);
+  renderSession(); $("incidents").replaceChildren(); $("filters").replaceChildren(); $("total").textContent = ""; renderEmpty();
 });
-$("tick").addEventListener("click", async (ev) => {
-  ev.target.disabled = true;
+$("inject").addEventListener("click", async (ev) => {
+  ev.currentTarget.disabled = true;
+  try { await api(`/demo/faults/${encodeURIComponent($("fault").value)}`, "POST"); showError(null); } catch (e) { showError(e); }
+  $("inject").disabled = false;
+});
+$("tick").addEventListener("click", async () => {
+  const b = $("tick");
+  b.disabled = true; b.classList.add("busy"); b.textContent = "Обработка…";
   try {
     const r = await api("/demo/tick?n=20", "POST");
-    if (r.incidents.length) selected = r.incidents[r.incidents.length - 1].id;
+    if (r.incidents.length) { selected = r.incidents[r.incidents.length - 1].id; filter = "all"; }
+    showError(null);
   } catch (e) { showError(e); }
-  ev.target.disabled = false;
-  refresh();
+  b.disabled = false; b.classList.remove("busy"); b.textContent = "Продвинуть время на 100 с";
+  lastCard = ""; lastList = ""; refresh();
 });
+
+// тема: тёмная по умолчанию (рабочее место дежурного), выбор запоминается в браузере
+function applyTheme(t) { document.documentElement.dataset.theme = t; }
+try { const t = localStorage.getItem("sentinel-theme"); if (t === "light" || t === "dark") applyTheme(t); } catch { /* нет хранилища */ }
+const qsTheme = new URLSearchParams(location.search).get("theme");
+if (qsTheme === "light" || qsTheme === "dark") applyTheme(qsTheme);
+$("theme").addEventListener("click", () => {
+  const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme(t);
+  try { localStorage.setItem("sentinel-theme", t); } catch { /* нет хранилища */ }
+});
+
+renderSession(); renderEmpty();
 if (token) connect();
 setInterval(refresh, 3000);
 </script>

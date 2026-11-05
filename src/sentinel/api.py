@@ -90,11 +90,15 @@ def create_app(system: System | None = None, token: str | None = None, dev: bool
 
     @app.get("/config", dependencies=[Depends(oncall)])
     def config():
-        orch = system.orchestrator
+        orch, cfg = system.orchestrator, system.cfg
         return {"dev": dev, "faults": list(FAULTS) if dev else [], "mode": orch.mode,
                 "llm": getattr(orch.llm, "name", "unknown"),
                 "embedder": getattr(orch.retriever.embedder, "name", "unknown"),
-                "runbooks": len(orch.retriever.runbooks), "service": system.sim.name}
+                "runbooks": len(orch.retriever.runbooks), "service": system.sim.name,
+                # формула (2.4) и пороги политики P5, P6 — чтобы панель объясняла уверенность
+                "weights": {"llm": cfg.w_llm, "ret": cfg.w_ret, "sig": cfg.w_sig},
+                "thresholds": {"escalate": cfg.tau_esc,
+                               **{f"auto_{risk.value}": tau for risk, tau in cfg.tau_auto.items()}}}
 
     @app.get("/incidents", dependencies=[Depends(oncall)])
     def incidents():

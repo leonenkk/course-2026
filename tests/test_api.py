@@ -85,6 +85,12 @@ def test_config_hides_faults_outside_dev_mode():
     assert cfg["dev"] is False and cfg["faults"] == [] and cfg["runbooks"] >= 20
 
 
+def test_config_exposes_confidence_formula_and_thresholds():
+    cfg = make().get("/config").json()
+    assert cfg["weights"] == {"llm": 0.3, "ret": 0.2, "sig": 0.5}
+    assert cfg["thresholds"] == {"escalate": 0.4, "auto_low": 0.7, "auto_medium": 0.85}
+
+
 def test_card_explains_diagnosis():
     client = make()
     client.post("/demo/tick", params={"n": 12})
